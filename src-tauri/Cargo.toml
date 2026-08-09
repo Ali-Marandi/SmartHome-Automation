@@ -1,0 +1,16 @@
+[package]
+name = "smarthome-automation"
+version = "1.0.0"
+description = "Enterprise Smart Home Backend"
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2.0.0", features = [] }
+
+[dependencies]
+tauri = { version = "2.0.0", features = [] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]
