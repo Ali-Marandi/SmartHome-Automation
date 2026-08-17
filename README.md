@@ -3,16 +3,17 @@
 [![Release](https://img.shields.io/github/v/release/Ali-Marandi/SmartHome-Automation)](https://github.com/Ali-Marandi/SmartHome-Automation/releases)
 [![Desktop](https://img.shields.io/badge/Desktop-Windows%20%7C%20Tauri-7259ED)](https://tauri.app/)
 
-**Horizon** is a local-first Windows desktop control center for a smart home. Version **1.1.1** turns the original prototype into a functional, polished Tauri application with a responsive device dashboard, local demo home, energy and security workspaces, automation management, and a live Home Assistant connection path.
+**Horizon** is a local-first Windows desktop control center for a smart home. Version **1.1.2** adds an explainable local energy forecast, advanced light/dark/system appearance controls, personalized dashboard widgets, a v1.1.1 build-and-stability report, and a documented extension API to the functional Tauri control center.
 
 > Horizon does not require a cloud account for its demo workspace. When a Home Assistant server is connected, its long-lived token is retained **only in the running app process** and is cleared at disconnect or app exit.
 
-## Implemented in v1.1.1
+## Implemented in v1.1.2
 
 | Area | Delivered capability |
 | --- | --- |
 | Control center | Responsive overview, device grouping, active-state controls, favorites, real-time notices, and compact-window navigation. |
-| Energy | Live consumption calculation for the local demo, daily profile visualization, target tracking, and a documented optimization recommendation. |
+| Energy intelligence | Live consumption, daily profile visualization, and a deterministic 1–48 hour time-of-day weighted forecast with confidence and data-quality context. |
+| Personal workspace | High-contrast advanced dark mode, light/system options, and local widget show/hide/reorder preferences for the dashboard. |
 | Security | Local demo perimeter status, access-point summary, integrity indicators, and away-protection action. |
 | Automations | A local automation catalogue with enable/disable controls and a clearly marked rule-builder milestone. |
 | Home Assistant | Authenticated REST connection; discovery of supported `light`, `switch`, `climate`, `sensor`, `binary_sensor`, `lock`, and `cover` entities; and service control for compatible actuators. |
@@ -52,6 +53,10 @@ On Windows, Tauri produces an installer artifact under `src-tauri/target/release
 Open **Settings → Connect Home Assistant**, then provide the URL of a trusted Home Assistant instance and a long-lived access token from that instance's profile. Use a local HTTPS endpoint whenever possible. The app validates the connection, imports supported entities, and sends control requests only to the host you entered.
 
 The integration uses Home Assistant’s official REST interface for `/api/states` discovery and `/api/services/{domain}/{service}` actions. [1]
+
+## API and Developer Documentation
+
+The complete IPC command contracts, normalized energy schemas, extension manifest direction, error model, and Home Assistant boundaries are documented in [API_REFERENCE.md](docs/API_REFERENCE.md). The module onboarding, security requirements, energy-adapter example, development workflow, and validation gates are documented in [DEVELOPER_GUIDE.md](docs/DEVELOPER_GUIDE.md). The evidence-based prior-release assessment is available in [V1.1.1_TEST_REPORT.md](docs/V1.1.1_TEST_REPORT.md).
 
 ## Release Process
 

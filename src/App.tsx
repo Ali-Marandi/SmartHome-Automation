@@ -1,4 +1,4 @@
-import { FormEvent, ReactNode, useMemo, useState } from 'react';
+import { FormEvent, ReactNode, useEffect, useMemo, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import {
   Activity,
@@ -35,6 +35,10 @@ import {
   Sparkles,
   Sun,
   Thermometer,
+  SunMoon,
+  LayoutTemplate,
+  RotateCcw,
+  GripVertical,
   Wifi,
   X,
   Zap,
@@ -82,6 +86,73 @@ type IntegrationStatus = {
 
 type ToastTone = 'success' | 'error' | 'info';
 type Toast = { tone: ToastTone; message: string } | null;
+type ThemeMode = 'system' | 'light' | 'dark';
+type WidgetId = 'status' | 'energy' | 'forecast' | 'activity' | 'favorites';
+
+type WidgetPreference = {
+  id: WidgetId;
+  enabled: boolean;
+};
+
+type EnergySample = {
+  timestamp: string;
+  hour: number;
+  usageKw: number;
+};
+
+type ForecastPoint = {
+  hour: number;
+  predictedKw: number;
+  lowerKw: number;
+  upperKw: number;
+  sourceSamples: number;
+};
+
+type EnergyForecast = {
+  methodology: string;
+  confidence: number;
+  observationCount: number;
+  forecast: ForecastPoint[];
+  totalKwh: number;
+  dataQualityNote: string;
+};
+
+const WIDGET_PREFERENCE_KEY = 'horizon.dashboard.widgets.v1';
+const THEME_PREFERENCE_KEY = 'horizon.theme.v1';
+const defaultWidgets: WidgetPreference[] = [
+  { id: 'status', enabled: true },
+  { id: 'energy', enabled: true },
+  { id: 'forecast', enabled: true },
+  { id: 'activity', enabled: true },
+  { id: 'favorites', enabled: true },
+];
+
+const widgetLabels: Record<WidgetId, { title: string; detail: string }> = {
+  status: { title: 'Home health', detail: 'Core status and active-device metrics' },
+  energy: { title: 'Energy flow', detail: 'Live consumption and daily profile' },
+  forecast: { title: 'Energy forecast', detail: 'Next-24-hour local adaptive forecast' },
+  activity: { title: 'Live activity', detail: 'Recent home and automation events' },
+  favorites: { title: 'Favorite devices', detail: 'Fast controls for selected devices' },
+};
+
+const demoEnergySamples: EnergySample[] = [
+  { timestamp: '2026-08-16T00:00:00Z', hour: 0, usageKw: 0.91 },
+  { timestamp: '2026-08-16T03:00:00Z', hour: 3, usageKw: 0.75 },
+  { timestamp: '2026-08-16T06:00:00Z', hour: 6, usageKw: 0.82 },
+  { timestamp: '2026-08-16T09:00:00Z', hour: 9, usageKw: 1.67 },
+  { timestamp: '2026-08-16T12:00:00Z', hour: 12, usageKw: 2.31 },
+  { timestamp: '2026-08-16T15:00:00Z', hour: 15, usageKw: 2.47 },
+  { timestamp: '2026-08-16T18:00:00Z', hour: 18, usageKw: 2.02 },
+  { timestamp: '2026-08-16T21:00:00Z', hour: 21, usageKw: 1.46 },
+  { timestamp: '2026-08-17T00:00:00Z', hour: 0, usageKw: 0.88 },
+  { timestamp: '2026-08-17T03:00:00Z', hour: 3, usageKw: 0.71 },
+  { timestamp: '2026-08-17T06:00:00Z', hour: 6, usageKw: 0.86 },
+  { timestamp: '2026-08-17T09:00:00Z', hour: 9, usageKw: 1.73 },
+  { timestamp: '2026-08-17T12:00:00Z', hour: 12, usageKw: 2.42 },
+  { timestamp: '2026-08-17T15:00:00Z', hour: 15, usageKw: 2.18 },
+  { timestamp: '2026-08-17T18:00:00Z', hour: 18, usageKw: 1.96 },
+  { timestamp: '2026-08-17T21:00:00Z', hour: 21, usageKw: 1.38 },
+];
 
 const energyData = [
   { time: '00:00', usage: 0.92 },
@@ -174,6 +245,71 @@ const isActive = (device: Device) => device.state === 'on' || device.state === '
 
 const formatError = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
+const loadWidgetPreferences = (): WidgetPreference[] => {
+  try {
+    const stored = window.localStorage.getItem(WIDGET_PREFERENCE_KEY);
+    if (!stored) return defaultWidgets;
+    const parsed: unknown = JSON.parse(stored);
+    if (!Array.isArray(parsed)) return defaultWidgets;
+    const ids = new Set(defaultWidgets.map((widget) => widget.id));
+    const valid = parsed.filter((item): item is WidgetPreference => (
+      typeof item === 'object'
+      && item !== null
+      && 'id' in item
+      && 'enabled' in item
+      && typeof item.id === 'string'
+      && ids.has(item.id as WidgetId)
+      && typeof item.enabled === 'boolean'
+    ));
+    return valid.length === defaultWidgets.length ? valid : defaultWidgets;
+  } catch {
+    return defaultWidgets;
+  }
+};
+
+const loadThemePreference = (): ThemeMode => {
+  try {
+    const value = window.localStorage.getItem(THEME_PREFERENCE_KEY);
+    return value === 'light' || value === 'dark' || value === 'system' ? value : 'system';
+  } catch {
+    return 'system';
+  }
+};
+
+const fallbackForecast = (): EnergyForecast => ({
+  methodology: 'Preview fallback using the bundled demo history',
+  confidence: 48,
+  observationCount: demoEnergySamples.length,
+  totalKwh: 35.31,
+  dataQualityNote: 'Demo history is active. Connect a real meter or module before using this forecast for cost decisions.',
+  forecast: [
+    { hour: 22, predictedKw: 1.18, lowerKw: 1.01, upperKw: 1.35, sourceSamples: 2 },
+    { hour: 23, predictedKw: 0.86, lowerKw: 0.72, upperKw: 1.0, sourceSamples: 1 },
+    { hour: 0, predictedKw: 0.89, lowerKw: 0.76, upperKw: 1.02, sourceSamples: 2 },
+    { hour: 1, predictedKw: 0.79, lowerKw: 0.66, upperKw: 0.92, sourceSamples: 0 },
+    { hour: 2, predictedKw: 0.74, lowerKw: 0.61, upperKw: 0.87, sourceSamples: 0 },
+    { hour: 3, predictedKw: 0.75, lowerKw: 0.62, upperKw: 0.88, sourceSamples: 2 },
+    { hour: 4, predictedKw: 0.76, lowerKw: 0.63, upperKw: 0.89, sourceSamples: 0 },
+    { hour: 5, predictedKw: 0.8, lowerKw: 0.67, upperKw: 0.93, sourceSamples: 0 },
+    { hour: 6, predictedKw: 0.86, lowerKw: 0.72, upperKw: 1.0, sourceSamples: 2 },
+    { hour: 7, predictedKw: 1.1, lowerKw: 0.92, upperKw: 1.28, sourceSamples: 0 },
+    { hour: 8, predictedKw: 1.46, lowerKw: 1.2, upperKw: 1.72, sourceSamples: 0 },
+    { hour: 9, predictedKw: 1.7, lowerKw: 1.49, upperKw: 1.91, sourceSamples: 2 },
+    { hour: 10, predictedKw: 2.03, lowerKw: 1.72, upperKw: 2.34, sourceSamples: 0 },
+    { hour: 11, predictedKw: 2.29, lowerKw: 1.91, upperKw: 2.67, sourceSamples: 0 },
+    { hour: 12, predictedKw: 2.39, lowerKw: 2.22, upperKw: 2.56, sourceSamples: 2 },
+    { hour: 13, predictedKw: 2.42, lowerKw: 2.08, upperKw: 2.76, sourceSamples: 0 },
+    { hour: 14, predictedKw: 2.37, lowerKw: 2.02, upperKw: 2.72, sourceSamples: 0 },
+    { hour: 15, predictedKw: 2.24, lowerKw: 2.05, upperKw: 2.43, sourceSamples: 2 },
+    { hour: 16, predictedKw: 2.14, lowerKw: 1.83, upperKw: 2.45, sourceSamples: 0 },
+    { hour: 17, predictedKw: 2.03, lowerKw: 1.73, upperKw: 2.33, sourceSamples: 0 },
+    { hour: 18, predictedKw: 1.98, lowerKw: 1.83, upperKw: 2.13, sourceSamples: 2 },
+    { hour: 19, predictedKw: 1.74, lowerKw: 1.44, upperKw: 2.04, sourceSamples: 0 },
+    { hour: 20, predictedKw: 1.55, lowerKw: 1.27, upperKw: 1.83, sourceSamples: 0 },
+    { hour: 21, predictedKw: 1.42, lowerKw: 1.29, upperKw: 1.55, sourceSamples: 2 },
+  ],
+});
+
 const readAttribute = (entity: HomeAssistantEntity, attribute: string): string | undefined => {
   const value = entity.attributes[attribute];
   return typeof value === 'string' || typeof value === 'number' ? String(value) : undefined;
@@ -232,6 +368,58 @@ function App() {
     message: 'Demo mode is running locally. Connect a Home Assistant hub when ready.',
   });
   const [toast, setToast] = useState<Toast>(null);
+  const [themeMode, setThemeMode] = useState<ThemeMode>(loadThemePreference);
+  const [systemDark, setSystemDark] = useState(() => window.matchMedia('(prefers-color-scheme: dark)').matches);
+  const [widgets, setWidgets] = useState<WidgetPreference[]>(loadWidgetPreferences);
+  const [customizeOpen, setCustomizeOpen] = useState(false);
+  const [forecast, setForecast] = useState<EnergyForecast>(fallbackForecast);
+  const [forecastLoading, setForecastLoading] = useState(true);
+  const [forecastSource, setForecastSource] = useState<'local model' | 'preview fallback'>('preview fallback');
+
+  const resolvedTheme = themeMode === 'system' ? (systemDark ? 'dark' : 'light') : themeMode;
+  const visibleWidgets = widgets.filter((widget) => widget.enabled);
+
+  useEffect(() => {
+    const media = window.matchMedia('(prefers-color-scheme: dark)');
+    const syncSystemTheme = (event: MediaQueryListEvent) => setSystemDark(event.matches);
+    media.addEventListener('change', syncSystemTheme);
+    return () => media.removeEventListener('change', syncSystemTheme);
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.dataset.horizonTheme = resolvedTheme;
+    try {
+      window.localStorage.setItem(THEME_PREFERENCE_KEY, themeMode);
+    } catch {
+      // Theme preference is optional and should never block the desktop UI.
+    }
+  }, [resolvedTheme, themeMode]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(WIDGET_PREFERENCE_KEY, JSON.stringify(widgets));
+    } catch {
+      // Widget preferences are optional and should never block the desktop UI.
+    }
+  }, [widgets]);
+
+  const refreshForecast = async () => {
+    setForecastLoading(true);
+    try {
+      const result = await invoke<EnergyForecast>('forecast_energy_usage', { samples: demoEnergySamples, horizonHours: 24 });
+      setForecast(result);
+      setForecastSource('local model');
+    } catch {
+      setForecast(fallbackForecast());
+      setForecastSource('preview fallback');
+    } finally {
+      setForecastLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void refreshForecast();
+  }, []);
 
   const activeDevices = devices.filter(isActive).length;
   const liveUsage = devices.reduce((total, device) => total + (isActive(device) ? device.usage : 0), 0);
@@ -320,10 +508,30 @@ function App() {
     }
   };
 
+  const toggleWidget = (id: WidgetId) => {
+    setWidgets((current) => current.map((widget) => widget.id === id ? { ...widget, enabled: !widget.enabled } : widget));
+  };
+
+  const moveWidget = (id: WidgetId, direction: -1 | 1) => {
+    setWidgets((current) => {
+      const index = current.findIndex((widget) => widget.id === id);
+      const destination = index + direction;
+      if (index < 0 || destination < 0 || destination >= current.length) return current;
+      const next = [...current];
+      [next[index], next[destination]] = [next[destination], next[index]];
+      return next;
+    });
+  };
+
+  const restoreDashboardDefaults = () => {
+    setWidgets(defaultWidgets);
+    showToast('success', 'Dashboard widgets were restored to the Horizon default layout.');
+  };
+
   const pageTitle = navigation.find((item) => item.id === view)?.label ?? 'Settings';
 
   return (
-    <div className="app-shell">
+    <div className="app-shell" data-theme={resolvedTheme}>
       <aside className={`sidebar ${mobileOpen ? 'sidebar-open' : ''}`}>
         <div className="brand">
           <div className="brand-mark"><Command size={20} strokeWidth={2.7} /></div>
@@ -366,49 +574,39 @@ function App() {
         </header>
 
         <section className="page-content">
-          {view === 'overview' && <Overview devices={devices} activeDevices={activeDevices} liveUsage={liveUsage} connected={connection.connected} onConnect={() => setConnectOpen(true)} onToggle={toggleDevice} onViewDevices={() => setView('devices')} />}
+          {view === 'overview' && <Overview devices={devices} activeDevices={activeDevices} liveUsage={liveUsage} connected={connection.connected} widgets={visibleWidgets} forecast={forecast} forecastLoading={forecastLoading} forecastSource={forecastSource} onConnect={() => setConnectOpen(true)} onToggle={toggleDevice} onViewDevices={() => setView('devices')} onCustomize={() => setCustomizeOpen(true)} onRefreshForecast={refreshForecast} />}
           {view === 'devices' && <DevicesPage devices={devices} onToggle={toggleDevice} onConnect={() => setConnectOpen(true)} />}
           {view === 'automations' && <AutomationsPage onNew={() => showToast('info', 'The visual rule builder is scheduled for the next production milestone.')} />}
           {view === 'energy' && <EnergyPage liveUsage={liveUsage} />}
           {view === 'security' && <SecurityPage onArm={() => showToast('success', 'Away protection has been armed for this demo home.')} />}
-          {view === 'settings' && <SettingsPage connection={connection} connectedDevices={connectedDevices} onConnect={() => setConnectOpen(true)} onDisconnect={disconnect} />}
+          {view === 'settings' && <SettingsPage connection={connection} connectedDevices={connectedDevices} themeMode={themeMode} resolvedTheme={resolvedTheme} onThemeChange={setThemeMode} onCustomize={() => setCustomizeOpen(true)} onConnect={() => setConnectOpen(true)} onDisconnect={disconnect} />}
         </section>
       </main>
 
       <button className="assistant-launcher" onClick={() => setAssistantOpen(true)} aria-label="Open Horizon assistant"><Bot size={21} /><span>Ask Horizon</span></button>
       {assistantOpen && <AssistantPanel onClose={() => setAssistantOpen(false)} onMessage={showToast} />}
+      {customizeOpen && <WidgetCustomizer widgets={widgets} onClose={() => setCustomizeOpen(false)} onToggle={toggleWidget} onMove={moveWidget} onReset={restoreDashboardDefaults} />}
       {connectOpen && <ConnectionDialog loading={loading} onClose={() => setConnectOpen(false)} onConnect={connectHomeAssistant} />}
       {toast && <div className={`toast toast-${toast.tone}`} role="status"><span>{toast.tone === 'success' ? <Check size={18} /> : toast.tone === 'error' ? <AlertTriangle size={18} /> : <CircleHelp size={18} />}</span>{toast.message}<button onClick={() => setToast(null)} aria-label="Dismiss notification"><X size={16} /></button></div>}
     </div>
   );
 }
 
-function Overview({ devices, activeDevices, liveUsage, connected, onConnect, onToggle, onViewDevices }: { devices: Device[]; activeDevices: number; liveUsage: number; connected: boolean; onConnect: () => void; onToggle: (device: Device) => void; onViewDevices: () => void }) {
-  return <>
-    <section className="welcome-row">
-      <div><p className="eyebrow">Tuesday, 18 August</p><h2>Good evening, Ali.</h2><p className="muted-copy">Your home is calm, protected, and running efficiently.</p></div>
-      <div className={`connection-card ${connected ? 'connection-card-live' : ''}`}><div className="connection-icon">{connected ? <Wifi size={19} /> : <CloudOff size={19} />}</div><div><strong>{connected ? 'Live hub connected' : 'Run your real home from here'}</strong><span>{connected ? 'Live controls are available' : 'Connect Home Assistant securely'}</span></div><button onClick={onConnect}>{connected ? 'Manage' : 'Connect'} <ChevronRight size={15} /></button></div>
-    </section>
+function Overview({ devices, activeDevices, liveUsage, connected, widgets, forecast, forecastLoading, forecastSource, onConnect, onToggle, onViewDevices, onCustomize, onRefreshForecast }: { devices: Device[]; activeDevices: number; liveUsage: number; connected: boolean; widgets: WidgetPreference[]; forecast: EnergyForecast; forecastLoading: boolean; forecastSource: 'local model' | 'preview fallback'; onConnect: () => void; onToggle: (device: Device) => void; onViewDevices: () => void; onCustomize: () => void; onRefreshForecast: () => Promise<void> }) {
+  const content: Record<WidgetId, ReactNode> = {
+    status: <section className="widget-status"><div className="metric-grid"><MetricCard label="Home status" value="All clear" detail="No attention needed" icon={<ShieldCheck size={20} />} color="teal" /><MetricCard label="Active devices" value={`${activeDevices} / ${devices.length}`} detail="Across your connected spaces" icon={<Activity size={20} />} color="violet" /><MetricCard label="Live energy" value={`${liveUsage.toFixed(2)} kW`} detail="12% below daily average" icon={<Zap size={20} />} color="amber" /><MetricCard label="Indoor comfort" value="21.5°" detail="Excellent air quality" icon={<Thermometer size={20} />} color="blue" /></div></section>,
+    energy: <section className="card energy-card"><div className="card-heading"><div><p className="eyebrow">Today</p><h3>Energy flow</h3></div><button className="text-button">View report <ArrowRight size={15} /></button></div><div className="energy-summary"><div><strong>{liveUsage.toFixed(2)} kW</strong><span>Live consumption</span></div><span className="trend-positive">↓ 12.4%</span><p>Compared with your Tuesday baseline</p></div><div className="chart-wrap"><ResponsiveContainer width="100%" height="100%"><AreaChart data={energyData} margin={{ top: 8, left: -20, right: 6, bottom: 0 }}><defs><linearGradient id="usageFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#7c5cff" stopOpacity={0.4} /><stop offset="100%" stopColor="#7c5cff" stopOpacity={0} /></linearGradient></defs><CartesianGrid vertical={false} stroke="var(--chart-grid)" strokeDasharray="3 4" /><XAxis dataKey="time" tickLine={false} axisLine={false} tick={{ fill: 'var(--chart-tick)', fontSize: 11 }} /><YAxis tickLine={false} axisLine={false} tick={{ fill: 'var(--chart-tick)', fontSize: 11 }} tickFormatter={(value: number) => `${value}k`} /><Tooltip contentStyle={{ backgroundColor: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 12, boxShadow: '0 14px 35px rgba(26,20,58,.12)' }} formatter={(value: number) => [`${value.toFixed(2)} kW`, 'Usage']} /><Area type="monotone" dataKey="usage" stroke="#7259f7" fillOpacity={1} strokeWidth={3} fill="url(#usageFill)" /></AreaChart></ResponsiveContainer></div></section>,
+    forecast: <ForecastWidget forecast={forecast} loading={forecastLoading} source={forecastSource} onRefresh={onRefreshForecast} />,
+    activity: <section className="card pulse-card"><div className="card-heading"><div><p className="eyebrow">Live pulse</p><h3>Home activity</h3></div><span className="live-tag"><i /> LIVE</span></div><div className="pulse-list"><PulseItem icon={<Lightbulb size={17} />} title="Living room lights" detail="Brightness adjusted to 68%" time="Just now" /><PulseItem icon={<ShieldCheck size={17} />} title="Perimeter secured" detail="Front door verified locked" time="12 min ago" /><PulseItem icon={<Fan size={17} />} title="Climate optimized" detail="Reduced fan power after sunset" time="28 min ago" /><PulseItem icon={<Sparkles size={17} />} title="Automation ready" detail="Quiet evening begins in 1h 24m" time="Today" /></div></section>,
+    favorites: <section className="favorites-widget"><div className="section-heading"><div><p className="eyebrow">Favorites</p><h3>Rooms that matter now</h3></div><button className="text-button" onClick={onViewDevices}>All devices <ArrowRight size={15} /></button></div><section className="device-grid">{devices.slice(0, 4).map((device) => <DeviceCard key={device.id} device={device} onToggle={onToggle} />)}</section></section>,
+  };
 
-    <section className="metric-grid">
-      <MetricCard label="Home status" value="All clear" detail="No attention needed" icon={<ShieldCheck size={20} />} color="teal" />
-      <MetricCard label="Active devices" value={`${activeDevices} / ${devices.length}`} detail="Across your connected spaces" icon={<Activity size={20} />} color="violet" />
-      <MetricCard label="Live energy" value={`${liveUsage.toFixed(2)} kW`} detail="12% below daily average" icon={<Zap size={20} />} color="amber" />
-      <MetricCard label="Indoor comfort" value="21.5°" detail="Excellent air quality" icon={<Thermometer size={20} />} color="blue" />
-    </section>
+  return <><section className="welcome-row"><div><p className="eyebrow">Tuesday, 18 August</p><h2>Good evening, Ali.</h2><p className="muted-copy">Your home is calm, protected, and running efficiently.</p></div><div className="overview-actions"><button className="secondary-button customize-button" onClick={onCustomize}><LayoutTemplate size={16} /> Customize dashboard</button><div className={`connection-card ${connected ? 'connection-card-live' : ''}`}><div className="connection-icon">{connected ? <Wifi size={19} /> : <CloudOff size={19} />}</div><div><strong>{connected ? 'Live hub connected' : 'Run your real home from here'}</strong><span>{connected ? 'Live controls are available' : 'Connect Home Assistant securely'}</span></div><button onClick={onConnect}>{connected ? 'Manage' : 'Connect'} <ChevronRight size={15} /></button></div></div></section><section className="dashboard-widget-grid">{widgets.length > 0 ? widgets.map((widget) => <div className={`dashboard-widget widget-${widget.id}`} key={widget.id}>{content[widget.id]}</div>) : <section className="empty-dashboard"><LayoutTemplate size={26} /><h3>All dashboard widgets are hidden</h3><p>Restore or enable a widget to make this workspace useful again.</p><button className="primary-button" onClick={onCustomize}>Customize dashboard</button></section>}</section></>;
+}
 
-    <section className="dashboard-grid">
-      <div className="card energy-card">
-        <div className="card-heading"><div><p className="eyebrow">Today</p><h3>Energy flow</h3></div><button className="text-button">View report <ArrowRight size={15} /></button></div>
-        <div className="energy-summary"><div><strong>{liveUsage.toFixed(2)} kW</strong><span>Live consumption</span></div><span className="trend-positive">↓ 12.4%</span><p>Compared with your Tuesday baseline</p></div>
-        <div className="chart-wrap"><ResponsiveContainer width="100%" height="100%"><AreaChart data={energyData} margin={{ top: 8, left: -20, right: 6, bottom: 0 }}><defs><linearGradient id="usageFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#7c5cff" stopOpacity={0.4} /><stop offset="100%" stopColor="#7c5cff" stopOpacity={0} /></linearGradient></defs><CartesianGrid vertical={false} stroke="#e8e8f0" strokeDasharray="3 4" /><XAxis dataKey="time" tickLine={false} axisLine={false} tick={{ fill: '#8d8da0', fontSize: 11 }} /><YAxis tickLine={false} axisLine={false} tick={{ fill: '#8d8da0', fontSize: 11 }} tickFormatter={(value: number) => `${value}k`} /><Tooltip contentStyle={{ border: '1px solid #ecebf3', borderRadius: 12, boxShadow: '0 14px 35px rgba(26,20,58,.12)' }} formatter={(value: number) => [`${value.toFixed(2)} kW`, 'Usage']} /><Area type="monotone" dataKey="usage" stroke="#7259f7" strokeWidth={3} fill="url(#usageFill)" /></AreaChart></ResponsiveContainer></div>
-      </div>
-      <div className="card pulse-card"><div className="card-heading"><div><p className="eyebrow">Live pulse</p><h3>Home activity</h3></div><span className="live-tag"><i /> LIVE</span></div><div className="pulse-list"><PulseItem icon={<Lightbulb size={17} />} title="Living room lights" detail="Brightness adjusted to 68%" time="Just now" /><PulseItem icon={<ShieldCheck size={17} />} title="Perimeter secured" detail="Front door verified locked" time="12 min ago" /><PulseItem icon={<Fan size={17} />} title="Climate optimized" detail="Reduced fan power after sunset" time="28 min ago" /><PulseItem icon={<Sparkles size={17} />} title="Automation ready" detail="Quiet evening begins in 1h 24m" time="Today" /></div></div>
-    </section>
-
-    <section className="section-heading"><div><p className="eyebrow">Favorites</p><h3>Rooms that matter now</h3></div><button className="text-button" onClick={onViewDevices}>All devices <ArrowRight size={15} /></button></section>
-    <section className="device-grid">{devices.slice(0, 4).map((device) => <DeviceCard key={device.id} device={device} onToggle={onToggle} />)}</section>
-  </>;
+function ForecastWidget({ forecast, loading, source, onRefresh }: { forecast: EnergyForecast; loading: boolean; source: 'local model' | 'preview fallback'; onRefresh: () => Promise<void> }) {
+  const chartData = forecast.forecast.filter((_, index) => index % 3 === 0).map((point) => ({ time: `${String(point.hour).padStart(2, '0')}:00`, predicted: point.predictedKw, lower: point.lowerKw, upper: point.upperKw }));
+  return <section className="card forecast-card"><div className="card-heading"><div><p className="eyebrow">Adaptive forecast</p><h3>Next 24 hours</h3></div><button className="icon-button" onClick={() => { void onRefresh(); }} aria-label="Refresh energy forecast" disabled={loading}><RefreshCw className={loading ? 'spin' : ''} size={17} /></button></div><div className="forecast-headline"><div><strong>{forecast.totalKwh.toFixed(1)} kWh</strong><span>Projected consumption</span></div><div className="confidence-badge"><Sparkles size={14} /><span>{forecast.confidence}% confidence</span></div></div><div className="forecast-chart"><ResponsiveContainer width="100%" height="100%"><AreaChart data={chartData} margin={{ top: 7, left: -17, right: 4, bottom: 0 }}><defs><linearGradient id="forecastFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#0ba58a" stopOpacity={0.35} /><stop offset="100%" stopColor="#0ba58a" stopOpacity={0} /></linearGradient></defs><CartesianGrid vertical={false} stroke="var(--chart-grid)" strokeDasharray="3 4" /><XAxis dataKey="time" tickLine={false} axisLine={false} tick={{ fill: 'var(--chart-tick)', fontSize: 10 }} /><YAxis hide domain={[0, 'dataMax + 0.4']} /><Tooltip contentStyle={{ backgroundColor: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 10 }} formatter={(value: number, name: string) => [`${value.toFixed(2)} kW`, name === 'predicted' ? 'Prediction' : name]} /><Area type="monotone" dataKey="upper" stroke="transparent" fill="transparent" /><Area type="monotone" dataKey="lower" stroke="transparent" fill="var(--surface)" fillOpacity={1} /><Area type="monotone" dataKey="predicted" stroke="#0ba58a" fill="url(#forecastFill)" strokeWidth={3} /></AreaChart></ResponsiveContainer></div><div className="forecast-foot"><span className={source === 'local model' ? 'forecast-source-live' : ''}><i /> {source === 'local model' ? 'Local model' : 'Preview fallback'}</span><span>{forecast.observationCount} observations</span></div><p className="forecast-note">{forecast.dataQualityNote}</p></section>;
 }
 
 function DevicesPage({ devices, onToggle, onConnect }: { devices: Device[]; onToggle: (device: Device) => void; onConnect: () => void }) {
@@ -429,8 +627,12 @@ function SecurityPage({ onArm }: { onArm: () => void }) {
   return <><section className="content-intro"><div><p className="eyebrow">Protection center</p><h2>Security status</h2><p className="muted-copy">A local-first overview of perimeter state, access, and home health.</p></div><button className="primary-button" onClick={onArm}><ShieldCheck size={17} /> Arm away protection</button></section><section className="security-banner"><div className="security-state"><div><ShieldCheck size={28} /></div><section><p>PERIMETER STATUS</p><h3>Protected and calm</h3><span>All monitored access points report a secure state.</span></section></div><div className="security-meta"><span>Last scan</span><strong>Just now</strong></div></section><section className="security-grid"><article className="card access-card"><div className="card-heading"><div><p className="eyebrow">Access</p><h3>Entry points</h3></div><DoorClosed size={22} /></div><SecurityRow name="Front door" state="Locked" icon={<Lock size={17} />} /><SecurityRow name="Garden gate" state="Closed" icon={<DoorClosed size={17} />} /><SecurityRow name="Garage" state="Closed" icon={<PanelTop size={17} />} /></article><article className="card access-card"><div className="card-heading"><div><p className="eyebrow">Network</p><h3>System integrity</h3></div><Radio size={22} /></div><SecurityRow name="Local hub" state="Healthy" icon={<Cpu size={17} />} /><SecurityRow name="Encrypted sessions" state="Enabled" icon={<KeyRound size={17} />} /><SecurityRow name="Security log" state="No critical events" icon={<ShieldCheck size={17} />} /></article></section></>;
 }
 
-function SettingsPage({ connection, connectedDevices, onConnect, onDisconnect }: { connection: IntegrationStatus; connectedDevices: number; onConnect: () => void; onDisconnect: () => void }) {
-  return <><section className="content-intro"><div><p className="eyebrow">Workspace</p><h2>Settings</h2><p className="muted-copy">Manage trusted integrations and the local control environment.</p></div></section><section className="settings-layout"><article className="card settings-card"><div className="card-heading"><div><p className="eyebrow">Integrations</p><h3>Home Assistant</h3></div><span className={`status-badge ${connection.connected ? 'status-live' : ''}`}>{connection.connected ? 'Connected' : 'Not connected'}</span></div><p>Connect to a Home Assistant server using a long-lived access token. Credentials stay only in the running application session and are cleared when you disconnect or close the app.</p><div className="integration-details"><span><Wifi size={16} /> {connection.connected ? connection.host ?? 'Connected hub' : 'No hub configured'}</span><span><SlidersHorizontal size={16} /> {connection.connected ? `${connectedDevices} supported entities imported` : 'Demo devices available'}</span></div><div className="settings-actions">{connection.connected ? <><button className="secondary-button" onClick={onConnect}>Manage connection</button><button className="danger-button" onClick={onDisconnect}>Disconnect</button></> : <button className="primary-button" onClick={onConnect}><Link2 size={16} /> Connect Home Assistant</button>}</div></article><article className="card settings-card"><div className="card-heading"><div><p className="eyebrow">Privacy</p><h3>Local by design</h3></div><ShieldCheck size={22} /></div><p>Horizon does not create an account or send demo-home telemetry to a cloud service. External control requires a user-initiated hub connection.</p><div className="check-list"><span><Check size={16} /> No cloud account required</span><span><Check size={16} /> Session credentials are memory-only</span><span><Check size={16} /> Home activity stays on your network</span></div></article><article className="card settings-card full-settings"><div className="card-heading"><div><p className="eyebrow">Protocol roadmap</p><h3>What Horizon supports now</h3></div><span className="status-badge">v1.1</span></div><div className="protocol-grid"><Protocol name="Home Assistant" detail="Live REST control for supported entities" state="Available" /><Protocol name="Matter" detail="Planned through a certified controller bridge" state="Roadmap" /><Protocol name="MQTT" detail="Planned for advanced local deployments" state="Roadmap" /><Protocol name="Zigbee / Z-Wave" detail="Planned through hub adapters" state="Roadmap" /></div></article></section></>;
+function SettingsPage({ connection, connectedDevices, themeMode, resolvedTheme, onThemeChange, onCustomize, onConnect, onDisconnect }: { connection: IntegrationStatus; connectedDevices: number; themeMode: ThemeMode; resolvedTheme: 'light' | 'dark'; onThemeChange: (theme: ThemeMode) => void; onCustomize: () => void; onConnect: () => void; onDisconnect: () => void }) {
+  return <><section className="content-intro"><div><p className="eyebrow">Workspace</p><h2>Settings</h2><p className="muted-copy">Manage trusted integrations, appearance, and the local control environment.</p></div></section><section className="settings-layout"><article className="card settings-card"><div className="card-heading"><div><p className="eyebrow">Integrations</p><h3>Home Assistant</h3></div><span className={`status-badge ${connection.connected ? 'status-live' : ''}`}>{connection.connected ? 'Connected' : 'Not connected'}</span></div><p>Connect to a Home Assistant server using a long-lived access token. Credentials stay only in the running application session and are cleared when you disconnect or close the app.</p><div className="integration-details"><span><Wifi size={16} /> {connection.connected ? connection.host ?? 'Connected hub' : 'No hub configured'}</span><span><SlidersHorizontal size={16} /> {connection.connected ? `${connectedDevices} supported entities imported` : 'Demo devices available'}</span></div><div className="settings-actions">{connection.connected ? <><button className="secondary-button" onClick={onConnect}>Manage connection</button><button className="danger-button" onClick={onDisconnect}>Disconnect</button></> : <button className="primary-button" onClick={onConnect}><Link2 size={16} /> Connect Home Assistant</button>}</div></article><article className="card settings-card"><div className="card-heading"><div><p className="eyebrow">Appearance</p><h3>Adaptive workspace theme</h3></div><SunMoon size={22} /></div><p>Choose a high-contrast mode for focused control. System mode follows your Windows appearance preference.</p><div className="theme-options">{(['system', 'light', 'dark'] as ThemeMode[]).map((option) => <button key={option} className={`theme-option ${themeMode === option ? 'theme-option-active' : ''}`} onClick={() => onThemeChange(option)}><span className={`theme-swatch swatch-${option}`} />{option[0].toUpperCase() + option.slice(1)}</button>)}</div><div className="theme-status"><span><i /> Active: {resolvedTheme === 'dark' ? 'Advanced dark' : 'Light'} mode</span><button className="text-button" onClick={onCustomize}><LayoutTemplate size={15} /> Customize widgets</button></div></article><article className="card settings-card"><div className="card-heading"><div><p className="eyebrow">Privacy</p><h3>Local by design</h3></div><ShieldCheck size={22} /></div><p>Horizon does not create an account or send demo-home telemetry to a cloud service. External control requires a user-initiated hub connection.</p><div className="check-list"><span><Check size={16} /> No cloud account required</span><span><Check size={16} /> Session credentials are memory-only</span><span><Check size={16} /> Home activity stays on your network</span></div></article><article className="card settings-card full-settings"><div className="card-heading"><div><p className="eyebrow">Protocol roadmap</p><h3>What Horizon supports now</h3></div><span className="status-badge">v1.1.2</span></div><div className="protocol-grid"><Protocol name="Home Assistant" detail="Live REST control for supported entities" state="Available" /><Protocol name="Energy Forecast API" detail="Local adaptive forecasting from normalized samples" state="Available" /><Protocol name="Matter / MQTT" detail="Roadmap through scoped module adapters" state="Roadmap" /><Protocol name="Zigbee / Z-Wave" detail="Roadmap through trusted hub adapters" state="Roadmap" /></div></article></section></>;
+}
+
+function WidgetCustomizer({ widgets, onClose, onToggle, onMove, onReset }: { widgets: WidgetPreference[]; onClose: () => void; onToggle: (id: WidgetId) => void; onMove: (id: WidgetId, direction: -1 | 1) => void; onReset: () => void }) {
+  return <div className="dialog-backdrop" role="presentation"><section className="dialog widget-dialog" role="dialog" aria-modal="true" aria-labelledby="widget-dialog-title"><div className="dialog-header"><div><div className="dialog-icon"><LayoutTemplate size={21} /></div><h2 id="widget-dialog-title">Customize dashboard</h2><p>Show the information you need most, then reorder the workspace to match your routine.</p></div><button className="icon-button" onClick={onClose} aria-label="Close dashboard customization"><X size={19} /></button></div><div className="widget-list">{widgets.map((widget, index) => { const meta = widgetLabels[widget.id]; return <article key={widget.id} className="widget-list-item"><GripVertical size={17} /><div className="widget-list-copy"><strong>{meta.title}</strong><span>{meta.detail}</span></div><button className={`toggle ${widget.enabled ? 'toggle-on' : ''}`} onClick={() => onToggle(widget.id)} aria-label={`Toggle ${meta.title}`}><span /></button><div className="widget-order-actions"><button className="icon-button" onClick={() => onMove(widget.id, -1)} disabled={index === 0} aria-label={`Move ${meta.title} up`}>↑</button><button className="icon-button" onClick={() => onMove(widget.id, 1)} disabled={index === widgets.length - 1} aria-label={`Move ${meta.title} down`}>↓</button></div></article>; })}</div><div className="dialog-actions"><button type="button" className="secondary-button" onClick={onReset}><RotateCcw size={15} /> Restore defaults</button><button type="button" className="primary-button" onClick={onClose}>Done</button></div></section></div>;
 }
 
 function MetricCard({ label, value, detail, icon, color }: { label: string; value: string; detail: string; icon: ReactNode; color: string }) { return <article className="metric-card"><div className={`metric-icon metric-${color}`}>{icon}</div><p>{label}</p><strong>{value}</strong><span>{detail}</span></article>; }

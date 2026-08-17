@@ -1,10 +1,12 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod ai_engine;
+mod energy_forecast;
 
 use std::sync::Mutex;
 
 use ai_engine::{query_local_ai, run_predictive_analysis};
+use energy_forecast::{generate_energy_forecast, EnergyForecast, EnergySample};
 use reqwest::{Client, Url};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -287,6 +289,14 @@ fn disconnect_home_assistant(state: State<'_, AppState>) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn forecast_energy_usage(
+    samples: Vec<EnergySample>,
+    horizon_hours: Option<u8>,
+) -> Result<EnergyForecast, String> {
+    generate_energy_forecast(samples, horizon_hours)
+}
+
+#[tauri::command]
 fn get_device_status() -> String {
     "{\"devices\": [{\"id\": 1, \"name\": \"Living Room Light\", \"status\": \"on\", \"energy\": 12.5}, {\"id\": 2, \"name\": \"AC Unit\", \"status\": \"off\", \"energy\": 0.0}]}".to_string()
 }
@@ -309,7 +319,8 @@ fn main() {
             connect_home_assistant,
             get_home_assistant_entities,
             control_home_assistant_entity,
-            disconnect_home_assistant
+            disconnect_home_assistant,
+            forecast_energy_usage
         ])
         .run(tauri::generate_context!())
         .expect("error while running SmartHome Automation");
