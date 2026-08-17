@@ -1,6 +1,6 @@
 [package]
 name = "smarthome-automation"
-version = "1.1.0"
+version = "1.1.1"
 description = "Local-first Smart Home Control Center"
 edition = "2021"
 

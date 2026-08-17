@@ -1,6 +1,6 @@
 {
   "name": "smarthome-automation",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Enterprise-grade Smart Home Automation Platform",
   "main": "index.html",
   "scripts": {

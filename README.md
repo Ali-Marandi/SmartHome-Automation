@@ -3,11 +3,11 @@
 [![Release](https://img.shields.io/github/v/release/Ali-Marandi/SmartHome-Automation)](https://github.com/Ali-Marandi/SmartHome-Automation/releases)
 [![Desktop](https://img.shields.io/badge/Desktop-Windows%20%7C%20Tauri-7259ED)](https://tauri.app/)
 
-**Horizon** is a local-first Windows desktop control center for a smart home. Version **1.1.0** turns the original prototype into a functional, polished Tauri application with a responsive device dashboard, local demo home, energy and security workspaces, automation management, and a live Home Assistant connection path.
+**Horizon** is a local-first Windows desktop control center for a smart home. Version **1.1.1** turns the original prototype into a functional, polished Tauri application with a responsive device dashboard, local demo home, energy and security workspaces, automation management, and a live Home Assistant connection path.
 
 > Horizon does not require a cloud account for its demo workspace. When a Home Assistant server is connected, its long-lived token is retained **only in the running app process** and is cleared at disconnect or app exit.
 
-## Implemented in v1.1.0
+## Implemented in v1.1.1
 
 | Area | Delivered capability |
 | --- | --- |
