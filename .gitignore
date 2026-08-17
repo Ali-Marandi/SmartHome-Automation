@@ -1,0 +1,19 @@
+# JavaScript dependencies and generated frontend output
+node_modules/
+dist/
+
+# Tauri and Rust build output
+src-tauri/target/
+src-tauri/gen/
+
+# Local environment and editor files
+.env
+.env.*
+!.env.example
+.DS_Store
+.vscode/
+.idea/
+
+# Temporary test and coverage output
+coverage/
+*.log

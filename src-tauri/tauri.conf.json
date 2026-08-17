@@ -1,10 +1,10 @@
 {
   "productName": "SmartHome-Automation",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "identifier": "com.smarthome.automation",
   "build": {
-    "beforeDevCommand": "pnpm dev",
-    "beforeBuildCommand": "pnpm build",
+    "beforeDevCommand": "pnpm exec vite",
+    "beforeBuildCommand": "pnpm frontend:build",
     "devUrl": "http://localhost:1420",
     "frontendDist": "../dist"
   },
@@ -25,7 +25,6 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "identifier": "com.smarthome.automation",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

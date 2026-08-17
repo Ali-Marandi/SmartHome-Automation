@@ -1,45 +1,69 @@
-name: Release
+name: Windows release candidate
+
 on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: windows-release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   release:
-    permissions:
-      contents: write
-    strategy:
-      fail-fast: false
-      matrix:
-        platform: [windows-latest]
-    runs-on: ${{ matrix.platform }}
+    name: Build Windows installer
+    runs-on: windows-latest
     steps:
-      - name: Checkout repository
+      - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Install Rust
+      - name: Install stable Rust
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
+          cache: pnpm
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v3
+        uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 11.20.0
 
-      - name: Install dependencies
-        run: pnpm install
+      - name: Install dependencies from lockfile
+        run: pnpm install --frozen-lockfile
 
-      - name: Build Tauri App
+      - name: Validate frontend
+        run: pnpm typecheck
+
+      - name: Build Windows NSIS installer and draft release
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: "SmartHome Automation ${{ github.ref_name }}"
-          releaseBody: "Enterprise-grade Smart Home Automation Platform Release."
-          releaseDraft: false
+          releaseName: "Horizon Smart Home ${{ github.ref_name }}"
+          releaseBody: |
+            ## Horizon Smart Home ${{ github.ref_name }}
+
+            This is a **draft release candidate** for Windows review.
+
+            ### Highlights
+            - Redesigned local-first smart-home control center.
+            - Home Assistant REST connection for supported entity discovery and controls.
+            - Device, automation, energy, security, and settings workspaces.
+            - Session-only Home Assistant credential handling.
+
+            ### Verification required before publishing
+            - Install on a clean Windows machine.
+            - Connect to a test Home Assistant instance using a least-privilege token.
+            - Verify device controls, disconnect behavior, and installer uninstall flow.
+            - Review installer hash, release notes, and code-signing status.
+          releaseDraft: true
           prerelease: false
+          args: --bundles nsis

@@ -2,7 +2,6 @@
 // Written in Rust for Tauri v2 Backend
 
 use serde::{Deserialize, Serialize};
-use std::sync::Mutex;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DeviceTelemetry {
